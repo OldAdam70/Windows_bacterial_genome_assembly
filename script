@@ -1,0 +1,435 @@
+import datetime
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.ticker
+import multiprocessing
+import numpy
+import os
+import pathlib
+import platform
+import psutil
+import shutil
+import subprocess
+
+
+version = "0.1.1"
+
+####################
+#                  #
+#   User Defined   #
+#                  #
+####################
+
+#Analysis folder
+baseDir = os.environ['USERPROFILE'] + "\\analyses\\Burkholderia3"
+
+#reads
+reads = os.environ['USERPROFILE'] + "\\Desktop\\SequenceData\\Burkholderia3\\rawReads"
+
+#program location
+prog = os.environ['USERPROFILE'] + "\\prog"
+scripts = os.environ['USERPROFILE'] + "\\scripts"
+
+#Maximum number of cores used per sample for parallel processing
+#A higher value reduces the memory fragment
+maxProc = 1
+
+#Annotation
+kingdom = "TOCHANGE"
+genus = "TOCHANGE"
+species = "TOCHANGE"
+gram = "TOCHANGE"
+locus_tag = "TOCHANGE"
+centre = "TOCHANGE"
+
+#For assembly trimming
+smallest_contig = 1000
+size = 4900000
+
+####################
+#                  #
+#    Resources     #
+#                  #
+####################
+
+#computer performance
+cpu = multiprocessing.cpu_count() #total number of cores
+mem = (psutil.virtual_memory()[0]) * 85/100000000000 #85% of total memory in GB
+memJava = "-Xmx" + str(int(mem)) + "g"
+memCdHit = mem * 1000 #Not used as of yet
+
+####################
+#                  #
+# Data Structures  #
+#                  #
+####################
+
+#Folder structure
+logs = baseDir + "\\logs"
+qc = baseDir + "\\QC"
+fastqc = qc + "\\fastqc"
+trimmed = baseDir + "\\trimmed"
+merged = baseDir + "\\merged"
+corrected = baseDir + "\\corrected"
+assembly = baseDir + "\\assembly"
+ordered = baseDir + "\\ordered"
+annotation = baseDir + "\\annotation"
+phaster = baseDir + "\\phaster"
+amr = baseDir + "\\amr"
+
+#create folders if do not exist
+pathlib.Path(baseDir).mkdir(parents = True, exist_ok = True)
+pathlib.Path(logs).mkdir(parents = True, exist_ok = True)
+pathlib.Path(qc).mkdir(parents = True, exist_ok = True)
+pathlib.Path(fastqc).mkdir(parents = True, exist_ok = True)
+pathlib.Path(trimmed).mkdir(parents = True, exist_ok = True)
+pathlib.Path(merged).mkdir(parents = True, exist_ok = True)
+pathlib.Path(corrected).mkdir(parents = True, exist_ok = True)
+pathlib.Path(assembly).mkdir(parents = True, exist_ok = True)
+pathlib.Path(ordered).mkdir(parents = True, exist_ok = True)
+pathlib.Path(annotation).mkdir(parents = True, exist_ok = True)
+pathlib.Path(phaster).mkdir(parents = True, exist_ok = True)
+pathlib.Path(amr).mkdir(parents = True, exist_ok = True)
+pathlib.Path(fastqc + "\\raw").mkdir(parents = True, exist_ok = True)
+pathlib.Path(fastqc + "\\multiqc").mkdir(parents=True, exist_ok=True)
+
+####################
+#                  #
+#  Initiating Log  #
+#                  #
+####################
+
+#Date
+now = datetime.datetime.now()
+print(str(now))
+user = "User: " + os.getlogin()
+processors = " Processors: " + str(cpu)
+memory = " Memory: " + str(mem) + "G"
+print(user + processors + memory)
+
+
+#script version
+print("Version " + version)
+
+with open(logs + "\\log.txt", "a") as f:
+    f.write(str(now) + "\n")
+    f.write(user + processors + memory + "\n")
+    f.write("Version " + version + "\n")
+
+#check if dependencies are installed
+#if so, log version, if not exit
+with subprocess.Popen("python --version", stdout = subprocess.PIPE) as pop:
+    pythonLog = pop.stdout.read().decode("utf-8")
+    with open(logs + "\\log.txt", "a") as f:
+        f.write(pythonLog)
+        print(pythonLog)
+#with subprocess.Popen("java -version", stdout = subprocess.PIPE) as pop:
+    #javaLog = pop.stdout.read().decode("utf-8")
+    #print(pop.stdout.read())
+    #TODO not actually putting out the java version call in stdout for some reason, so the print statement does nothing
+#with subprocess.Popen(["cmd", "/c", "dir run_fastqc.bat /s"], cwd = "C:\\", stdout = subprocess.PIPE) as pop:
+    #fastqcLog = pop.stdout.read().decode("utf-8")
+    #print(fastqcLog)
+#with subprocess.Popen(["cmd", "/c", "dir multiqc.js /s"], cwd = "C:\\", stdout = subprocess.PIPE) as pop:
+    #multiqcLog = pop.stdout.read().decode("utf-8")
+    #print(multiqcLog)
+#with subprocess.Popen(["cmd", "/c", "dir bbduk.sh /s"], cwd = "C:\\", stdout = subprocess.PIPE) as pop:
+    #bbtoolsLog = pop.stdout.read().decode("utf-8")
+    #print(bbtoolsLog)
+#with subprocess.Popen(["cmd", "/c", "dir kraken.sh /s"], cwd = "C:\\", stdout = subprocess.PIPE) as pop:
+    #testLog = pop.stdout.read().decode("utf-8")
+    #print(testLog)
+
+####################
+#                  #
+#   FastQ Files    #
+#                  #
+####################
+
+#TODO
+
+####################
+#                  #
+#     Read QC      #
+#                  #
+####################
+
+###FastQC###
+
+#FastQC run call. Note that the period represents the current directory in the classpath calls
+#Basically tells the program where to find the classes to add to the classpath
+fastQCLocation = "C:/Users/ChmaraJ/Desktop/fastqc_v0.11.7/FastQC"
+runfast = "java " + memJava + " -Dfastqc.threads=4 -cp .;./sam-1.103.jar;./jbzip2-0.9.jar uk.ac.babraham.FastQC.FastQCApplication"
+
+#location of multiQC, can be run through python in cmd, just remember to direct it to a directory after the call!
+multiQC = "C:\\Users\\ChmaraJ\\AppData\\Roaming\\Python\\Python36\\Scripts"
+
+#Runs FastQC for each sample in your sequence data directory, outputs files to dedicated folder.
+#Also runs MultiQC to get a compiled data report, output is once again directed to dedicated destination.
+def run_fastqc():
+    readList = os.listdir(reads)
+    shortList = []
+    entries = ""
+    while len(readList) > 0:
+        shortList.append(readList.pop(-1));
+    for entry in shortList:
+        entries += " " + reads + "\\" + entry
+    fastqcOutput = fastqc + "\\raw"
+    subprocess.run(runfast + entries + " --outdir " + fastqcOutput + " --threads 4", cwd=fastQCLocation)
+    multiqcOutput = fastqc + "\\multiqc"
+    subprocess.run("python multiqc " + fastqcOutput + " -outdir=" + multiqcOutput, cwd=multiQC)
+run_fastqc()
+
+#Unfortunately, centrifuge, kraken and kat are not reasonable to run on personal laptops and
+#Are not compatible with Windows, and most people do not have R on their computer, so genomescope is out, as well.
+
+####################
+#                  #
+#     BBTools      #
+#                  #
+####################
+
+#Installation location of BBMap suite
+#Typical usage looks like >java -ea -Xmx(memory usage) -cp [bbmap path] [dir].[tool] in=reads.in out=reads.out
+#To find the java calls, open the associated bash shell script and scroll to the bottom, should be associated with
+#A local CMD call
+bbMap = "C:\\Users\\ChmaraJ\\Desktop\\BBMap\\BBMap_38.07\\bbmap"
+
+readList = os.listdir(reads)
+sampleList = []
+
+#Creates pre-processing directories for each sample, extracting the actual sample name from the file.
+def create_trimmingdirectories():
+    for entry in readList:
+        sampleID = entry.replace("_R1_001.fastq.gz", "")
+        sampleID = sampleID.replace("_R2_001.fastq.gz", "")
+        if sampleID not in sampleList:
+            sampleList.append(sampleID)
+        pathlib.Path(trimmed + "\\" + sampleID).mkdir(parents = True, exist_ok = True)
+create_trimmingdirectories()
+
+#Removing low-quality regions of flow-cell
+def run_filterbytile():
+    for entry in sampleList:
+        in1 = reads + "\\" + entry + "_R1_001.fastq.gz"
+        in2 = reads + "\\" + entry + "_R2_001.fastq.gz"
+        out1 = trimmed + "\\" + entry + "\\" + entry + "_Filtered_1P.fastq.gz"
+        out2 = trimmed + "\\" + entry + "\\" + entry + "_Filtered_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "hiseq.AnalyzeFlowCell", "in1=" + in1, "in2=" + in2,
+                   "out1=" + out1, "out2=" + out2, "threads=" + str(int(cpu/maxProc)), "ziplevel=9"]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_filterbytile()
+
+#Quality trimming and adapter trimming
+def run_qualityfilter():
+    for entry in sampleList:
+        in1 = trimmed + "\\" + entry + "\\" + entry + "_Filtered_1P.fastq.gz"
+        in2 = trimmed + "\\" + entry + "\\" + entry + "_Filtered_2P.fastq.gz"
+        out1 = trimmed + "\\" + entry + "\\" + entry + "_Trimmed_1P.fastq.gz"
+        out2 = trimmed + "\\" + entry + "\\" + entry + "_Trimmed_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "jgi.BBDukF", "in1=" + in1, "in2=" + in2, "out1=" + out1,
+                   "out2=" + out2, "ziplevel=9", "ref=" + bbMap + "\\resources\\adapters.fa",
+                   "ktrim=r", "k=23", "mink=11", "hdist=1", "tbo", "tpe", "qtrim=lr", "trimq=10",
+                   "minlen=64", "ordered=t", "threads=" + str(int(cpu/maxProc))]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_qualityfilter()
+
+#Remove synthetic artifacts and spike-ins
+#Add to "ref" any contaminants found with centrifuge (not applicable in this version of pipeline)
+def run_removeartifacts():
+    for entry in sampleList:
+        in1 = trimmed + "\\" + entry + "\\" + entry + "_Trimmed_1P.fastq.gz"
+        in2 = trimmed + "\\" + entry + "\\" + entry + "_Trimmed_2P.fastq.gz"
+        out1 = trimmed + "\\" + entry + "\\" + entry + "_Cleaned_1P.fastq.gz"
+        out2 = trimmed + "\\" + entry + "\\" + entry + "_Cleaned_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "jgi.BBDukF", "in1=" + in1, "in2=" + in2, "out1=" + out1,
+                   "out2=" + out2, "ziplevel=9", "ref=" + bbMap + "\\resources\\phix174_ill.ref.fa.gz",
+                   "k=31", "ordered=t", "threads=" + str(int(cpu/maxProc))]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_removeartifacts()
+
+#Create directories for holding interim steps of correction pre-processing
+def create_correcteddirectories():
+    for entry in sampleList:
+        pathlib.Path(corrected + "\\" + entry).mkdir(parents = True, exist_ok = True)
+    pathlib.Path(logs + "\\correction_step1").mkdir(parents = True, exist_ok = True)
+create_correcteddirectories()
+
+#Correcting Illumina paired-end reads
+#Phase 1
+def run_bbmerge():
+    for entry in sampleList:
+        in1 = trimmed + "\\" + entry + "\\" + entry + "_Cleaned_1P.fastq.gz"
+        in2 = trimmed + "\\" + entry + "\\" + entry + "_Cleaned_2P.fastq.gz"
+        out1 = corrected + "\\" + entry + "\\" + entry + "_Cor1_1P.fastq.gz"
+        out2 = corrected + "\\" + entry + "\\" + entry + "_Cor1_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "jgi.BBMerge", "in1=" + in1, "in2=" + in2,
+                   "out1=" + out1, "out2=" + out2, "ecco=t", "mix=t", "verystrict=t",
+                   "ordered=t", "ziplevel=9", "ordered ihist=" + logs + "\\correction_step1\\" + entry +
+                   "_ihist_corr_merge.txt", "threads=" + str(int(cpu/maxProc))]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_bbmerge()
+
+#Plot insert-sizes for each sample
+def plot_insertsizes():
+    for entry in sampleList:
+        with open(logs + "\\correction_step1\\" + entry + "_ihist_corr_merge.txt", "r") as f:
+            text = f.read()
+            text1 = text.replace("\t", " ")
+            splitText = text1.split("#")
+            splitText2 = splitText[6]
+            arrayText = splitText2.split("\n")
+            cleanedArray = arrayText[1:]
+            cleanedArray2 = cleanedArray[:-2]
+            insertSize = []
+            count = []
+            for item in cleanedArray2:
+                splitItem = item.split(" ")
+                insertSize.append(int(splitItem[0]))
+                count.append(int(splitItem[1]))
+            plt.plot(insertSize, count)
+            plt.title(entry)
+            plt.xlabel("Insert Size")
+            plt.ylabel("Count")
+            pathlib.Path(qc + "\\insert_size").mkdir(parents = True, exist_ok = True)
+            plt.savefig(qc + "\\insert_size\\" + entry + "_insert_bbtools.png")
+            plt.clf()
+plot_insertsizes()
+
+#Adds a merged plot of the insert sizes for comparison
+def plot_mergedinsertsizes():
+    for entry in sampleList:
+        with open(logs + "\\correction_step1\\" + entry + "_ihist_corr_merge.txt", "r") as f:
+            text = f.read()
+            text1 = text.replace("\t", " ")
+            splitText = text1.split("#")
+            splitText2 = splitText[6]
+            arrayText = splitText2.split("\n")
+            cleanedArray = arrayText[1:]
+            cleanedArray2 = cleanedArray[:-2]
+            insertSize = []
+            count = []
+            for item in cleanedArray2:
+                splitItem = item.split(" ")
+                insertSize.append(int(splitItem[0]))
+                count.append(int(splitItem[1]))
+            plt.plot(insertSize, count, label = entry)
+    plt.title("Merged Insert Sizes")
+    plt.xlabel("Insert Size")
+    plt.ylabel("Count")
+    plt.legend(fontsize = "xx-small")
+    plt.savefig(qc + "\\insert_size\\merged_insert_bbtools.png")
+    plt.clf()
+plot_mergedinsertsizes()
+
+#Phase 2
+def run_clumpify():
+    for entry in sampleList:
+        in1 = corrected + "\\" + entry + "\\" + entry + "_Cor1_1P.fastq.gz"
+        in2 = corrected + "\\" + entry + "\\" + entry + "_Cor1_2P.fastq.gz"
+        out1 = corrected + "\\" + entry + "\\" + entry + "_Cor2_1P.fastq.gz"
+        out2 = corrected + "\\" + entry + "\\" + entry + "_Cor2_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "clump.Clumpify", "in1=" + in1, "in2=" + in2,
+                   "out1=" + out1, "out2=" + out2, "ecc=t", "passes=4", "reorder=t", "ziplevel=9",
+                   "threads=" + str(int(cpu/maxProc))]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_clumpify()
+
+#Phase 3
+def run_tadpole():
+    for entry in sampleList:
+        in1 = corrected + "\\" + entry + "\\" + entry + "_Cor2_1P.fastq.gz"
+        in2 = corrected + "\\" + entry + "\\" + entry + "_Cor2_2P.fastq.gz"
+        out1 = corrected + "\\" + entry + "\\" + entry + "_Cor3_1P.fastq.gz"
+        out2 = corrected + "\\" + entry + "\\" + entry + "_Cor3_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "assemble.Tadpole", "in1=" + in1, "in2=" + in2,
+                   "out1=" + out1, "out2=" + out2, "ecc=t", "k=62", "ziplevel=9",
+                   "mode=correct", "threads=" + str(int(cpu/maxProc))]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_tadpole()
+
+#Merging Illumina overlapping paired-end reads
+def run_mergeoverlap():
+    pathlib.Path(logs + "\\merging").mkdir(parents=True, exist_ok=True)
+    for entry in sampleList:
+        in1 = corrected + "\\" + entry + "\\" + entry + "_Cor3_1P.fastq.gz"
+        in2 = corrected + "\\" + entry + "\\" + entry + "_Cor3_2P.fastq.gz"
+        out = merged + "\\" + entry + "\\" + entry + "_merged.fastq.gz"
+        outu = merged + "\\" + entry + "\\" + entry + "_unmerged_1P.fastq.gz"
+        outu2 = merged + "\\" + entry + "\\" + entry + "_unmerged_2P.fastq.gz"
+        command = ["java", "-ea", memJava, "jgi.BBMerge", "in1=" + in1, "in2=" + in2,
+                   "out=" + out, "outu=" + outu, "outu2=" + outu2, "strict=t", "k=93",
+                   "extend2=80", "rem=t", "ordered=t", "ziplevel=9", "threads=" + str(int(cpu/maxProc)),
+                   "ihist=" + logs + "\\merging\\" + entry + "_ihist_merge.txt"]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_mergeoverlap()
+
+#Creates directories for fastqc files from the merged reads
+def create_fastqcmergeddirectories():
+   for entry in sampleList:
+       pathlib.Path(fastqc + "\\merged\\" + entry).mkdir(parents = True, exist_ok = True)
+create_fastqcmergeddirectories()
+
+#QC on merged reads
+def run_mergefastqc():
+    for entry in sampleList:
+        currentOutput = merged + "\\" + entry
+        currentOutputFiles = os.listdir(currentOutput)
+        destinationOutput = fastqc + "\\merged\\" + entry
+        runmerged = runfast + " " + merged + "\\" + entry + "\\" + entry + "_merged.fastq.gz"
+        rununmerged = runfast + " " + merged + "\\" + entry + "\\" + entry + "_unmerged_1P.fastq.gz"
+        rununmerged2 = runfast + " " + merged + "\\" + entry + "\\" + entry + "_unmerged_2P.fastq.gz"
+        #subprocess.run(runmerged, cwd = fastQCLocation)
+        #subprocess.run(rununmerged, cwd = fastQCLocation)
+        #subprocess.run(rununmerged2, cwd = fastQCLocation)
+        for item in currentOutputFiles:
+            splitItem = item.split(".")
+            if(splitItem[-1] == "html" or splitItem[-1] == "zip"):
+                shutil.move(merged + "\\" + entry + "\\" + item, destinationOutput + "\\" + item)
+    mergedMultiQCOutput = fastqc + "\\multiqc"
+    subprocess.run("python multiqc " + fastqc + "\\merged", cwd = multiQC)
+    multiQCFiles = os.listdir(multiQC)
+    for item in multiQCFiles:
+        splitItem = item.split(".")
+        if(splitItem[-1] == "html" or splitItem[-1] == "zip"):
+            shutil.move(multiQC + "\\" + item, mergedMultiQCOutput + "\\" + item)
+#run_mergefastqc()
+
+####################
+#                  #
+#     Assembly     #
+#                  #
+####################
+
+#Runs the tadpole assembler, using the merged reads as single-end reads.
+#Note that the tadpole assembler is exceptionally fast, but this is a direct result of tadpole not attempting to
+#resolve gaps, like those produced from high-repeat areas.
+def run_tadpoleassembly():
+    for entry in sampleList:
+        in1 = merged + "\\" + entry + "\\" + entry + "_unmerged_1P.fastq.gz"
+        in2 = merged + "\\" + entry + "\\" + entry + "_unmerged_2P.fastq.gz"
+        extra = merged + "\\" + entry + "\\" + entry + "_merged.fastq.gz"
+        out = assembly + "\\" + entry + ".fasta"
+        command = ["java", "-ea", memJava, "assemble.Tadpole", "in1=" + in1, "in2=" + in2,
+                   "extra=" + extra, "out=" + out, "threads=" + str(int(cpu/maxProc)), "k=124"]
+        subprocess.run(command, cwd = bbMap + "/current")
+run_tadpoleassembly()
+
+####################
+#                  #
+# Gene Prediction  #
+#                  #
+####################
+
+#Uses prodigal to run gene prediction
+def run_prodigal():
+    pathlib.Path(assembly + "\\Gene_Prediction").mkdir(parents = True, exist_ok = True)
+    for entry in sampleList:
+        in1 = assembly + "\\" + entry + ".fasta"
+        out = assembly + "\\Gene_Prediction\\" + entry + "_results.gbk"
+        trans_file = assembly + "\\Gene_Prediction\\" + entry + "_protein.gbk"
+        nuc_file = assembly + "\\Gene_Prediction" + entry + "_nucleotide.gbk"
+        command = ["prodigal.windows.exe", "-i " + in1, "-o " + out, "-a " + trans_file,
+                   "-d " + nuc_file]
+        subprocess.run(command, cwd = os.environ['USERPROFILE'] + "\\Desktop")
+run_prodigal()
